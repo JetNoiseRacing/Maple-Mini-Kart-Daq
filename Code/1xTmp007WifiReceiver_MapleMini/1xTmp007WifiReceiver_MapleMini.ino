@@ -35,7 +35,7 @@
 
 //Default Serial Monitor printing to false - will be corrected to TRUE in setup() 
 //if Serial Monitor is detected
-boolean SERIALPRINT_ON = false;
+boolean SERIALPRINT_ON = true;
 
 //Define data struct
 typedef struct
@@ -52,7 +52,8 @@ my_data_t data;
 
 //Create instances of SPIClass and RF24 objects
 SPIClass SPI_2(2);
-RF24 radio(3,8); // CE, CSN
+//RF24 radio(3,8); // CE, CSN 
+RF24 radio(10,11); // CE, CSN
 
 //Define address for radio
 const byte address[6] = "00001";
@@ -66,7 +67,7 @@ void setup() {
   if (Serial3) {
     Serial.begin(9600);
     SERIALPRINT_ON = true;
-    while(!Serial){};  // Wait until Serial is up and running
+    //while(!Serial){};  // Wait until Serial is up and running
     Serial.println("Adafruit 1xTMP007 wifi example - receiver connected");
   }
 
@@ -77,7 +78,7 @@ void setup() {
   //Begin radio for listening
   radio.begin();
   radio.openReadingPipe(0, address);
-  radio.setPALevel(RF24_PA_MIN);
+  radio.setPALevel(RF24_PA_LOW);
   radio.startListening();
 
 } //End of void setup() ------------------------------------------------------
@@ -86,7 +87,7 @@ void setup() {
 //----Start Loop--------------------------------------------------------------
 
 void loop() {
-
+//Serial.println("Adafruit 1xTMP007 wifi example - receiver connected");
   //If radio transmission has been received, display to Serial Monitor
   if (radio.available()) {
   
@@ -116,5 +117,6 @@ void loop() {
     //Future writing to MicroSD card will take place here, using "data" struct
   
   }
+  //else {Serial.print("No msg available\n");}
   
 } //End of void loop() ------------------------------------------------------
