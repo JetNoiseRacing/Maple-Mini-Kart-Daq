@@ -20,6 +20,7 @@
 #include <SPI.h>
 #include <nRF24L01.h>
 #include <RF24.h>
+#include <itoa.h>
 
 //Define I2C communication pins
 #define SS          7
@@ -131,7 +132,16 @@ void loop() {
           data.IRsens[n].Dietemp = 999;
         }
       }
-      
+
+      if (Serial) {
+        Serial.println("IR Temp Sensor #"+requestMsg[5]);
+        char buf[33];
+        itoa(data.IRsens[n].tm,buf,10); Serial.println(String("Time (s): ") + buf);
+        itoa(data.IRsens[n].count,buf,10); Serial.println(String("Count: ") + buf);
+        itoa(data.IRsens[n].IRtemp,buf,10); Serial.println(String("IRtemp (F): ") + buf);
+        itoa(data.IRsens[n].Dietemp,buf,10); Serial.println(String("Dietemp (F): ") + buf);
+        Serial.print('\n');
+      }
     }
     msgNum+=1;
     if (msgNum>'9') {
