@@ -35,28 +35,27 @@ typedef struct                                  //Create struct definition for I
   } IRsensDEF;                                  //    0: No fault
                                                 //    1: AckPayload not available
                                                 //    2: Unsuccessful TX
-                                                
-typedef struct                                  //Define central struct as struct of sensor structs
-  {
-    IRsensDEF IRsens[2]; 
-  } central_data_struct;
-
-
+                                               
 central_data_struct data;                       //Create instance of central struct for data logging
 
 SPIClass SPI_2(2);                              //Set SPI #2
 RF24 radio(CE_PIN,CSN_PIN);                     //Create instance of RF24 radio
-                                                
+
 const byte numSens = 2;                         //Number of remote sensors with which hub communcates
 
+typedef struct                                  //Define central struct as struct of sensor structs
+  {
+    IRsensDEF IRsens[2]; 
+  } central_data_struct;
+  
 const byte addresses[numSens][6] = {"00001","00002"}; //Define addresses for radio
 
-char requestMsg[10] = "ToSenN  0"; 
-char msgNum = '0';
+char requestMsg[10] = "ToSenN  0";              //Compose main body of message for AckPayload message
+char msgNum = '0';                              //Variable for incrementing AckPayload message number
 
-int ackIRtempData[3] = {0,0,0};
+int ackIRtempData[3] = {0,0,0};                 //Vector to contain data received from sensors
 
-unsigned long currentMillis = 0;
+unsigned long currentMillis = 0;                //Variables for polling sensors at 1Hz
 unsigned long prevMillis = 0;
 unsigned long intervMillis = 1000;
 
@@ -89,16 +88,16 @@ void loop() {
   if (currentMillis-prevMillis>=intervMillis) { //Get IR temperatures in 1-second intervals
     for (int n=0; n<numSens; n++) {
       
-      radio.openWritingPipe(addresses[n]);
+      radio.openWritingPipe(addresses[n]);      //Change radio pipe to sensor of focus in this iteration
       
-      requestMsg[5] = n+1+'0';
+      requestMsg[5] = n+1+'0';                  //Increment Ackpayload message number
 
       bool successTX;
 
-      successTX = radio.write(&requestMsg, sizeof(requestMsg));
+      successTX = radio.write(&requestMsg, sizeof(requestMsg)); //Send request to sensor in focus
 
       if (successTX) {
-        if (radio.isAckPayloadAvailable()) {
+        if (radio.isAckPayloadAvailable()) {                    //Store data in struct if AckPayload received
           radio.read(&ackIRtempData, sizeof(ackIRtempData));
           data.IRsens[n].tm = currentMillis/1000.0;
           data.IRsens[n].count = ackIRtempData[0];
@@ -107,20 +106,20 @@ void loop() {
           data.IRsens[n].fault = 0;
         }
         else {
-          data.IRsens[n].tm = currentMillis/1000.0;
-          data.IRsens[n].fault = 1;
+          data.IRsens[n].tm = currentMillis/1000.0;             //Set no AckPayload fault flag and keep 
+          data.IRsens[n].fault = 1;                             //previous frame data
           //count, IRtemp, and Dietemp kept from previous loop to avoid discontenuities
         }
       }
       else {
-        data.IRsens[n].tm = currentMillis/1000.0;
-        data.IRsens[n].fault = 2;
+        data.IRsens[n].tm = currentMillis/1000.0;               //Set TX unsuccessful fault flag and keep 
+        data.IRsens[n].fault = 2;                               //previous frame data
         //count, IRtemp, and Dietemp kept from previous loop to avoid discontenuities
       }
     }
 
-    if (Serial) {
-      Serial.println("IR Temp Sensor #1\t\tIR Temp Sensor #2");
+    if (Serial) {                                               //Print data received from sensors to Serial
+      Serial.println("IR Temp Sensor #1\t\tIR Temp Sensor #2"); 
       char buftm[50],buf1[50],buf2[50];
 
       if (data.IRsens[0].fault==1) {
@@ -160,12 +159,12 @@ void loop() {
       Serial.print('\n');*/
     }
     
-    msgNum+=1;
-    if (msgNum>'9') {
+    msgNum+=1;                                    //Increment AckPayload message number,
+    if (msgNum>'9') {                             //keeping between 1 and 9
       msgNum = '0';
     }
-    requestMsg[8] = msgNum;
-    prevMillis = currentMillis;
+    requestMsg[8] = msgNum;                       //Update AckPayload message with new message number
+    prevMillis = currentMillis;                   //Reset timestamp of previous transmission
   }
 }
 
