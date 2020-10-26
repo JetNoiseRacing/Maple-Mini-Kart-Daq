@@ -39,7 +39,7 @@ typedef struct                                  //Create struct definition for I
 central_data_struct data;                       //Create instance of central struct for data logging
 
 SPIClass SPI_2(2);                              //Set SPI #2
-RF24 radio(CE_PIN,CSN_PIN);                     //Create instance of RF24 radio
+RF24 radio(CE_PIN,CSN_PIN);                     //Create RF24 radio object
 
 const byte numSens = 2;                         //Number of remote sensors with which hub communcates
 
