@@ -20,10 +20,18 @@
 #include <nRF24L01.h>
 #include <RF24.h>
 
-#define CE_PIN 10                               //Define CE pin for RF24 radio
-#define CSN_PIN 11                              //Define CSN pin for RF24 radio
+#define CE_PIN      10                          //Define CE pin for RF24 radio
+#define CSN_PIN     11                          //Define CSN pin for RF24 radio
+
+#define DAcqHi      17                          //Define pins used for data recording start/stop switch
+#define DAcqSense   18                          //Hi = 3.3V source, Record when Sense = HIGH
+
+#define chipSelect  7                           //Specify digital pin for SD card chipselect
+#define ChipDet     3                           //Pin for detecting SD card
 
 boolean SERIALPRINT_ON = false;                 //Default serial print to false, set true later if Serial exists
+
+String SDFilename = "DATA000.txt";              //Specify desired name for SD card data file
 
 typedef struct                                  //Create struct definition for IR sensors
   {
@@ -35,8 +43,8 @@ typedef struct                                  //Create struct definition for I
   } IRsensDEF;                                  //    0: No fault
                                                 //    1: AckPayload not available
                                                 //    2: Unsuccessful TX
-                                               
-central_data_struct data;                       //Create instance of central struct for data logging
+
+File myFile;                                    //Set file object for MicroSD outfile
 
 SPIClass SPI_2(2);                              //Set SPI #2
 RF24 radio(CE_PIN,CSN_PIN);                     //Create RF24 radio object
@@ -47,6 +55,8 @@ typedef struct                                  //Define central struct as struc
   {
     IRsensDEF IRsens[2]; 
   } central_data_struct;
+
+central_data_struct data;                       //Create instance of central struct for data logging
   
 const byte addresses[numSens][6] = {"00001","00002"}; //Define addresses for radio
 
@@ -59,6 +69,11 @@ unsigned long currentMillis = 0;                //Variables for polling sensors 
 unsigned long prevMillis = 0;
 unsigned long intervMillis = 1000;
 
+bool myFileClosed = false;                      //SD card file closed
+bool myFileExists = false;                      //SD card file created
+bool SDinitFailed = false;                      //SD card failed to initialize
+int SDcardExists = 0;                           //SD card detected
+int DataAcqSwON = 0;                            //User flipped data acquisition switch
 
 //---- Start of void setup() -------------------------------------------------
 void setup() { 
@@ -77,6 +92,12 @@ void setup() {
   radio.setPALevel(RF24_PA_HIGH);
   radio.setRetries(5,5);                        //(delay=5ms,count=5)
 
+  pinMode(ChipDet,INPUT);                       //Set up pin for detecting SD card
+  pinMode(DAcqHi,OUTPUT);                       //Set up pin for HIGH side of data acq On/Off switch
+  pinMode(DAcqSense,INPUT);                     //Set pin for detecting position of data acq On/Off switch
+
+  digitalWrite(DAcqHi,HIGH);                    //Set HIGH pin for data acq On/Off switch
+
 } //End of void setup() ------------------------------------------------------
 
 
@@ -86,6 +107,9 @@ void loop() {
   currentMillis = millis();                     //Get time
 
   if (currentMillis-prevMillis>=intervMillis) { //Get IR temperatures in 1-second intervals
+    
+    SPI.setModule(2);                           //Set SPI focus to SPI #2 for radio - Maple Mini-unique function
+    
     for (int n=0; n<numSens; n++) {
       
       radio.openWritingPipe(addresses[n]);      //Change radio pipe to sensor of focus in this iteration
@@ -158,6 +182,54 @@ void loop() {
       Serial.println(String("Dietemp (F): ") + buf1 + "\t\t\tDietemp (F): " + buf2);
       Serial.print('\n');*/
     }
+
+    SDcardExists = digitalRead(ChipDet);          //Detect whether SD card is present
+    if (SDcardExists && SERIALPRINT_ON) {         //Print status of SD card if Serial open
+     Serial.println("SD card exists!");
+   }
+   else if (SERIALPRINT_ON) {
+     Serial.println("SD card does not exist");
+   }
+
+   DataAcqSwON = digitalRead(DAcqSense);          //Detect whether data acq switch is ON
+   if (DataAcqSwON && SERIALPRINT_ON) {           //Print status of switch if Serial open
+     Serial.println("Data Acq switch ON");
+   }
+   else if (SERIALPRINT_ON) {
+     Serial.println("Data Acq switch OFF");
+   }
+
+   SPI.setModule(1);                              //Set SPI focus to SPI #1 for SD card - Maple Mini-unique function
+   
+   if (SDcardExists && DataAcqSwON &&             //Set up MicroSD card recording file if card
+       !myFileExists && !SDinitFailed) {          //exists and setup has not failed previously
+     setupSDFile();                               
+   }
+
+   if (myFileExists && DataAcqSwON) {
+     //writeDataToFile(&myFile, &data);           //TODO: go back to handling
+                                                  //file and data with pointers like before
+     for (int n=0; n<numSens; n++) {
+       myFile.print(data.IRsens[n].tm);
+       myFile.print(", ");
+       myFile.print(data.IRsens[n].count);
+       myFile.print(", ");
+       myFile.print(data.IRsens[n].IRtemp);
+       myFile.print(", ");
+       myFile.print(data.IRsens[n].Dietemp);
+       myFile.print(", ");
+       myFile.print(data.IRsens[n].fault);
+       myFile.print(", ");
+     }
+     myFile.print("\n");  
+   }
+   else if (myFileExists && !myFileClosed) {
+     myFile.close();
+     myFileClosed = true;
+     if (SERIALPRINT_ON) {
+        Serial.println("File closed");
+     }
+   }
     
     msgNum+=1;                                    //Increment AckPayload message number,
     if (msgNum>'9') {                             //keeping between 1 and 9
@@ -168,6 +240,65 @@ void loop() {
   }
 }
 
+//----User Defined Functions----------------------------------------------------------------------
 
+//Set up MicroSD card for writing data
+void setupSDFile()
+  {
+    if (SERIALPRINT_ON){
+      Serial.print("Initializing SD card...");
+    }
+    
+    //Set up chip select pin
+    pinMode(chipSelect, OUTPUT);
+
+    //Attempt to set up data file if file does not exist. If initialization
+    //is unsuccessful, set Failed flag and end setup
+    if (!myFileExists)
+      {
+         if (!SD.begin(chipSelect)) 
+           {
+             if (SERIALPRINT_ON) {Serial.println("SD card initialization failed!");}
+             SDinitFailed = true;
+             return;
+           } 
+         else
+           {
+             if (SERIALPRINT_ON) {Serial.println("Initialization successful.");}
+             SDinitFailed = false;
+           }  
+      }
+    // open the file. note that only one file can be open at a time,
+    // so you have to close this one before opening another.
+    //Max file name length of 8 characters
+    myFile = SD.open(SDFilename, FILE_WRITE);
+
+    //If the file opened, write headers:
+    if (myFile && !myFileExists) 
+      {
+        if (SERIALPRINT_ON) {
+          Serial.println("myFile exists");
+        }
+        
+        //Print column headers
+        myFile.println("TimeSec,Count_1,IRTempF_1,DieTempF_1,Fault_1,,Count_2,IRTempF_2,DieTempF_2,Fault_2");
+        myFileExists = true;
+      } 
+    else if (!myFile)
+      {
+        //If the file didn't open, print error:
+        if (SERIALPRINT_ON) {
+          Serial.println("error opening data recording file");
+        }
+        
+        myFileExists = false;
+      }
+    else if (SERIALPRINT_ON)
+      {
+        //If the file already exists, don't write headers and simply append data
+        Serial.println("file already exists, appending data");
+      }
+  }
+  
 
 
