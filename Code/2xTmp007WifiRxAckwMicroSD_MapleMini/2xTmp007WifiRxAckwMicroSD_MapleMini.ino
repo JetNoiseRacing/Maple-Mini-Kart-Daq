@@ -9,8 +9,6 @@
   RF24 code modified from following sources:
         1. https://forum.arduino.cc/index.php?topic=421081.0
         2. Library: TMRh20/RF24, https://github.com/tmrh20/RF24/
-
-
  
   Author: Tom B.
   Date: 9/27/2020
@@ -21,21 +19,19 @@
 #include <SPI.h>
 #include <nRF24L01.h>
 #include <RF24.h>
-//#include <bits/stdc++.h>                      //Lazy hack, use headers directly!
-#include <vector>
-#include <algorithm>
 
 #define CE_PIN      10                          //Define CE pin for RF24 radio
 #define CSN_PIN     11                          //Define CSN pin for RF24 radio
 
-#define DAcqHi      9                          //Define pins used for data recording start/stop switch
-#define DAcqSense   8                          //Hi = 3.3V source, Record when Sense = HIGH
+#define DAcqHi      17                          //Define pins used for data recording start/stop switch
+#define DAcqSense   18                          //Hi = 3.3V source, Record when Sense = HIGH
 
 #define chipSelect  7                           //Specify digital pin for SD card chipselect
 #define ChipDet     3                           //Pin for detecting SD card
 
-String SDFilename = "DATA000.TXT";              //Specify default name for SD card data file
-File root;
+boolean SERIALPRINT_ON = false;                 //Default serial print to false, set true later if Serial exists
+
+String SDFilename = "DATA000.txt";              //Specify desired name for SD card data file
 
 typedef struct                                  //Create struct definition for IR sensors
   {
@@ -76,7 +72,6 @@ unsigned long intervMillis = 1000;
 bool myFileClosed = false;                      //SD card file closed
 bool myFileExists = false;                      //SD card file created
 bool SDinitFailed = false;                      //SD card failed to initialize
-bool SDbegun      = false;                      //SD card.begin() was successful
 int SDcardExists = 0;                           //SD card detected
 int DataAcqSwON = 0;                            //User flipped data acquisition switch
 
@@ -85,6 +80,7 @@ void setup() {
   
   if (Serial) {                                 //Start Serial Monitor if it extsts
     Serial.begin(9600);
+    SERIALPRINT_ON = true;
   }
 
   SPI_2.begin();                                //Start SPI #2 for RF24 radio
@@ -93,9 +89,9 @@ void setup() {
   radio.begin();                                //Begin radio for listening and set desired parameters
   radio.setDataRate(RF24_250KBPS);
   radio.enableAckPayload();
-  radio.setPALevel(RF24_PA_MAX);
+  radio.setPALevel(RF24_PA_HIGH);
   radio.setRetries(5,5);                        //(delay=5ms,count=5)
- 
+
   pinMode(ChipDet,INPUT);                       //Set up pin for detecting SD card
   pinMode(DAcqHi,OUTPUT);                       //Set up pin for HIGH side of data acq On/Off switch
   pinMode(DAcqSense,INPUT);                     //Set pin for detecting position of data acq On/Off switch
@@ -188,26 +184,26 @@ void loop() {
     }
 
     SDcardExists = digitalRead(ChipDet);          //Detect whether SD card is present
-    if (SDcardExists && Serial) {         //Print status of SD card if Serial open
+    if (SDcardExists && SERIALPRINT_ON) {         //Print status of SD card if Serial open
      Serial.println("SD card exists!");
-    }
-    else if (Serial) {
-      Serial.println("SD card does not exist");
-    }
+   }
+   else if (SERIALPRINT_ON) {
+     Serial.println("SD card does not exist");
+   }
 
    DataAcqSwON = digitalRead(DAcqSense);          //Detect whether data acq switch is ON
-   if (DataAcqSwON && Serial) {           //Print status of switch if Serial open
+   if (DataAcqSwON && SERIALPRINT_ON) {           //Print status of switch if Serial open
      Serial.println("Data Acq switch ON");
    }
-   else if (Serial) {
+   else if (SERIALPRINT_ON) {
      Serial.println("Data Acq switch OFF");
    }
 
-   SPI.setModule(1);                             //Set SPI focus to SPI #1 for SD card - Maple Mini-unique function
+   SPI.setModule(1);                              //Set SPI focus to SPI #1 for SD card - Maple Mini-unique function
    
-   if (SDcardExists && DataAcqSwON               //Set up MicroSD card recording file if card
-       && !SDinitFailed && !myFileExists) {      //exists and setup has not failed previously
-     setupSDFile();                                                                    
+   if (SDcardExists && DataAcqSwON &&             //Set up MicroSD card recording file if card
+       !myFileExists && !SDinitFailed) {          //exists and setup has not failed previously
+     setupSDFile();                               
    }
 
    if (myFileExists && DataAcqSwON) {
@@ -230,8 +226,7 @@ void loop() {
    else if (myFileExists && !myFileClosed) {
      myFile.close();
      myFileClosed = true;
-     myFileExists = false;
-     if (Serial) {
+     if (SERIALPRINT_ON) {
         Serial.println("File closed");
      }
    }
@@ -250,7 +245,7 @@ void loop() {
 //Set up MicroSD card for writing data
 void setupSDFile()
   {
-    if (Serial){
+    if (SERIALPRINT_ON){
       Serial.print("Initializing SD card...");
     }
     
@@ -261,53 +256,16 @@ void setupSDFile()
     //is unsuccessful, set Failed flag and end setup
     if (!myFileExists)
       {
-         if (!SD.begin(chipSelect) && !SDbegun) 
+         if (!SD.begin(chipSelect)) 
            {
-             if (Serial) {Serial.println("SD card initialization failed!");}
+             if (SERIALPRINT_ON) {Serial.println("SD card initialization failed!");}
              SDinitFailed = true;
              return;
            } 
          else
            {
-             SDbegun = true;
-            
-             if (Serial) {Serial.println("Initialization successful.");}
+             if (SERIALPRINT_ON) {Serial.println("Initialization successful.");}
              SDinitFailed = false;
-               
-             std::vector<String> sdFiles;
-             root = SD.open("/");
-             printDataFileNames(root,sdFiles,SDFilename);
-             if (!sdFiles.empty()) {
-               sort(sdFiles.begin(),sdFiles.end());
-               String lastfile = sdFiles.back();
-               int filenum = lastfile.substring(4,7).toInt();
-               int newfilenum = filenum+1;
-               char bufnum[50];
-               sprintf(bufnum,"%i",newfilenum);
-               if (Serial) {
-                 Serial.print("lastfile.substring(1,7) = ");
-                 Serial.println(lastfile.substring(1,7));
-                 Serial.print("lastfile.substring(4,7) = ");
-                 Serial.println(lastfile.substring(4,7));
-                 Serial.print("filenum = ");
-                 Serial.println(filenum);
-                 Serial.print("newfilenum = ");
-                 Serial.println(newfilenum);
-               }
-               if (newfilenum>999 || newfilenum<0) {
-                 //keep default SDfilename
-               }
-               else if (newfilenum<10) {
-                 SDFilename = String("DATA00")+bufnum+".TXT";
-               }
-               else if (newfilenum<100) {
-                 SDFilename = String("DATA0")+bufnum+".TXT";
-               }
-               else {
-                 SDFilename = String("DATA")+bufnum+".TXT";
-               }
-             }
-             root.close();
            }  
       }
     // open the file. note that only one file can be open at a time,
@@ -318,52 +276,29 @@ void setupSDFile()
     //If the file opened, write headers:
     if (myFile && !myFileExists) 
       {
-        if (Serial) {
+        if (SERIALPRINT_ON) {
           Serial.println("myFile exists");
         }
         
         //Print column headers
-        myFile.println("TimeSec_1,Count_1,IRTempF_1,DieTempF_1,Fault_1,TimeSec_2,Count_2,IRTempF_2,DieTempF_2,Fault_2,");
+        myFile.println("TimeSec,Count_1,IRTempF_1,DieTempF_1,Fault_1,,Count_2,IRTempF_2,DieTempF_2,Fault_2");
         myFileExists = true;
-        myFileClosed = false;
       } 
     else if (!myFile)
       {
         //If the file didn't open, print error:
-        if (Serial) {
+        if (SERIALPRINT_ON) {
           Serial.println("error opening data recording file");
         }
         
         myFileExists = false;
       }
-    else if (Serial)
+    else if (SERIALPRINT_ON)
       {
         //If the file already exists, don't write headers and simply append data
-        //Should not be exercised, including for fault tolerance
         Serial.println("file already exists, appending data");
       }
   }
   
-void printDataFileNames(File dir, std::vector<String>& fls,String defaultName) {
-  fls.clear();
-  while (true) {
-    File entry = dir.openNextFile();
-    if (!entry) {
-      break;
-    }
 
-    if (!entry.isDirectory()) {
-      String filename = entry.name();
-      if (Serial) {
-        Serial.println(filename);
-      }
-      if (filename.startsWith(String("DATA")) && 
-          filename.endsWith(String(".TXT")) && 
-          filename.length()==defaultName.length()) {
-        fls.push_back(entry.name());
-      }
-    }
-    entry.close();    
-  }
-}
 

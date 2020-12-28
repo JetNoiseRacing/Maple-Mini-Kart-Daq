@@ -85,7 +85,7 @@ void setup() {
   radio.begin();                                //Begin radio for listening and set desired parameters
   radio.setDataRate(RF24_250KBPS);
   radio.openReadingPipe(1,address);
-  radio.setPALevel(RF24_PA_HIGH);
+  radio.setPALevel(RF24_PA_MAX);
   radio.enableAckPayload();
   radio.startListening();                       
   
